@@ -20,8 +20,10 @@ program
   .option('--type-at <sequence_number>', 'start reading from this sequence number (AT_SEQUENCE_NUMBER)')
   .option('--type-after <sequence_number>', 'start reading after this sequence number (AFTER_SEQUENCE_NUMBER)')
   .option('--type-timestamp <timestamp>', 'start reading after this time (units: epoch seconds) (AT_TIMESTAMP)')
+  .option('--end-timestamp <endTimestamp>', 'start reading after this time (units: epoch seconds) (AT_TIMESTAMP)')
   .option('--no-new-line', "Don't print a new line between records")
   .option('--regex-filter <regexFilter>', 'filter data using this regular expression')
+  .option('--shard-id <shardId>', 'filter data using this regular expression')
   .option('--unzip', 'Unzip each record before printing')
   .action((streamName) => {
     if (program.list) {
@@ -55,6 +57,9 @@ program
       options.regexFilter = '.*'
     }
     options.unzip = program.unzip
+    options.shardId = program.shardId
+    options.endTimestamp = program.endTimestamp
+
     const reader = new index.KinesisStreamReader(client, streamName, options)
     reader.pipe(process.stdout)
   })

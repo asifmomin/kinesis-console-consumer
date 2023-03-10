@@ -8,7 +8,7 @@ function getStreams (client) {
   return client.listStreams({}).promise()
 }
 
-function getShardId (client, streamName) {
+function getShardId (client, streamName, shardId) {
   const params = {
     StreamName: streamName,
   }
@@ -19,7 +19,13 @@ function getShardId (client, streamName) {
       }
 
       debug('getShardId found %d shards', data.StreamDescription.Shards.length)
-      return data.StreamDescription.Shards.map((x) => x.ShardId)
+      const allShards = data.StreamDescription.Shards.map((x) => x.ShardId)
+
+      if (shardId) {
+        return allShards.filter((x) => x === shardId)
+      } else {
+        return allShards
+      }
     })
 }
 
@@ -57,21 +63,21 @@ class KinesisStreamReader extends Readable {
     const shardIteratorOptions = Object.keys(this.options)
       .filter((x) => whitelist.indexOf(x) !== -1)
       .reduce((result, key) => Object.assign(result, { [key]: this.options[key] }), {})
-    return getShardId(this.client, this.streamName)
+    return getShardId(this.client, this.streamName,this.options.shardId)
       .then((shardIds) => {
         const shardIterators = shardIds.map((shardId) =>
           getShardIterator(this.client, this.streamName, shardId, shardIteratorOptions))
         return Promise.all(shardIterators)
       })
       .then((shardIterators) => {
-        shardIterators.forEach((shardIterator) => this.readShard(shardIterator))
+        shardIterators.forEach((shardIterator) => this.readShard(shardIterator, this.options.endTimestamp))
       })
       .catch((err) => {
         this.emit('error', err) || console.log(err, err.stack)
       })
   }
 
-  readShard (shardIterator) {
+  readShard (shardIterator,endTimestamp) {
     this.iterators.add(shardIterator)
     debug('readShard starting from %s (out of %d)', shardIterator, this.iterators.size)
     const params = {
@@ -88,7 +94,8 @@ class KinesisStreamReader extends Readable {
       if (data.MillisBehindLatest > 60 * 1000) {
         debug('warning: behind by %d milliseconds', data.MillisBehindLatest)
       }
-      data.Records.forEach((x) => {
+
+      for (const x of data.Records) {
         let record = this.options.parser(x.Data)
         if (this.options.unzip) {
           record = zlib.gunzipSync(Buffer.from(record, 'base64')).toString()
@@ -99,7 +106,16 @@ class KinesisStreamReader extends Readable {
         if (this.options.filter.test(record)) {
           this.push(record)
         }
-      })
+        if (endTimestamp) {
+          const recordTimeStamp = new Date(x.ApproximateArrivalTimestamp)
+          const endDate = new Date(endTimestamp)
+          if (recordTimeStamp > endDate) {
+            this.iterators.delete(shardIterator)
+            return
+          }
+        }
+      }
+
 
       if (data.Records.length) {
         this.emit('checkpoint', data.Records[data.Records.length - 1].SequenceNumber)
@@ -113,7 +129,7 @@ class KinesisStreamReader extends Readable {
       }
 
       setTimeout(() => {
-        this.readShard(data.NextShardIterator)
+        this.readShard(data.NextShardIterator, this.options.endTimestamp)
         // idleTimeBetweenReadsInMillis  http://docs.aws.amazon.com/streams/latest/dev/kinesis-low-latency.html
       }, this.options.interval)
     })
