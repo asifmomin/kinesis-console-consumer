@@ -3,12 +3,13 @@
 const Readable = require('stream').Readable
 const debug = require('debug')('kinesis-console-consumer')
 const zlib = require('zlib')
+const _ = require('lodash')
 
 function getStreams (client) {
   return client.listStreams({}).promise()
 }
 
-function getShardId (client, streamName, shardId) {
+function getShardId (client, streamName, shardIds) {
   const params = {
     StreamName: streamName,
   }
@@ -21,8 +22,13 @@ function getShardId (client, streamName, shardId) {
       debug('getShardId found %d shards', data.StreamDescription.Shards.length)
       const allShards = data.StreamDescription.Shards.map((x) => x.ShardId)
 
-      if (shardId) {
-        return allShards.filter((x) => x === shardId)
+      if (shardIds) {
+        const isSubset = shardIds.every(shardId => allShards.includes(shardId))
+        if (isSubset) {
+          return shardIds
+        } else {
+          throw new Error('Incorrect shards specified')
+        }
       } else {
         return allShards
       }
@@ -63,8 +69,10 @@ class KinesisStreamReader extends Readable {
     const shardIteratorOptions = Object.keys(this.options)
       .filter((x) => whitelist.indexOf(x) !== -1)
       .reduce((result, key) => Object.assign(result, { [key]: this.options[key] }), {})
-    return getShardId(this.client, this.streamName,this.options.shardId)
+    return getShardId(this.client, this.streamName, this.options.shardIds)
       .then((shardIds) => {
+        debug('shardIds:', shardIds)
+
         const shardIterators = shardIds.map((shardId) =>
           getShardIterator(this.client, this.streamName, shardId, shardIteratorOptions))
         return Promise.all(shardIterators)

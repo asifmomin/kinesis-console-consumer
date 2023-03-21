@@ -23,7 +23,7 @@ program
   .option('--end-timestamp <endTimestamp>', 'start reading after this time (units: epoch seconds) (AT_TIMESTAMP)')
   .option('--no-new-line', "Don't print a new line between records")
   .option('--regex-filter <regexFilter>', 'filter data using this regular expression')
-  .option('--shard-id <shardId>', 'filter data using this regular expression')
+  .option('--shard-ids <shardIds>', 'filter data only for specified comma seperated shard ids')
   .option('--unzip', 'Unzip each record before printing')
   .action((streamName) => {
     if (program.list) {
@@ -57,7 +57,9 @@ program
       options.regexFilter = '.*'
     }
     options.unzip = program.unzip
-    options.shardId = program.shardId
+    if (program.shardIds) {
+      options.shardIds = program.shardIds.split(',').map(item => item.trim())
+    }
     options.endTimestamp = program.endTimestamp
 
     const reader = new index.KinesisStreamReader(client, streamName, options)
